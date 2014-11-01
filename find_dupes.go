@@ -60,7 +60,7 @@ func processFiles(id int, taskQueue <-chan string, doneQueue chan<- map[string][
 	for filename := range taskQueue {
 		fileDesc, err := generateFileDesc(id, filename)
 		if err != nil {
-			fmt.Printf("worker %d: error generating entry for %s: %s\n", filename, err)
+			fmt.Printf("worker %d: error generating entry for %s: %s\n", id, filename, err)
 			continue
 		}
 		filesByHash[fileDesc.hash] = append(filesByHash[fileDesc.hash], fileDesc)
@@ -87,7 +87,7 @@ func findDupes(dirname string, numWorkers int) map[string][]FileDesc {
 		if _, ok := Excludes[info.Name()]; ok {
 			return nil
 		}
-		if !info.IsDir() {
+		if info.Mode().IsRegular() {
 			//fmt.Printf("sending path %s to queue\n", path)
 			taskQueue <- path
 		}
