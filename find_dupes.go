@@ -4,10 +4,8 @@ import (
 	"crypto/md5"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
-	"runtime/pprof"
 	"strconv"
 )
 
@@ -161,15 +159,6 @@ func main() {
 		}
 		numWorkers = n
 	}
-
-	// http://localhost:6060/blog/profiling-go-programs
-	f, err := os.Create("/tmp/profff")
-	if err != nil {
-		log.Fatal(err)
-	}
-	pprof.StartCPUProfile(f)
-	defer pprof.StopCPUProfile()
-
 	fmt.Printf("Searching %s with %d workers\n", srcDir, numWorkers)
 	printDupes(srcDir, numWorkers)
 }
