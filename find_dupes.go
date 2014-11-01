@@ -2,15 +2,15 @@ package main
 
 import (
 	"crypto/md5"
-	"filepath"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 )
 
 var DefaultNumWorkers int = 2
-var Excludes = map[string]boolean{
+var Excludes = map[string]bool{
 	".":         true,
 	"..":        true,
 	".DS_Store": true,
@@ -18,16 +18,15 @@ var Excludes = map[string]boolean{
 
 type FileDesc struct {
 	path  string
-	mtime int
+	mtime int64
 	hash  string
 }
 
-func digestForFile(id int, path string) FileDesc {
+func generateFileDesc(id int, path string) (FileDesc, error) {
 	h := md5.New()
 	file, err := os.Open(path)
 	if err != nil {
-		fmt.Println("worker %d: error os.Open(%s): %s\n", id, filename, err)
-		return
+		return FileDesc{}, err
 	}
 	buf := make([]byte, 1048576)
 	for {
@@ -36,8 +35,7 @@ func digestForFile(id int, path string) FileDesc {
 			if err == io.EOF {
 				break
 			} else {
-				fmt.Println("worker %d: error Read(%s): %s\n", id, filename, err)
-				return
+				return FileDesc{}, err
 			}
 		}
 		h.Write(buf[0:count])
@@ -45,26 +43,33 @@ func digestForFile(id int, path string) FileDesc {
 	// XXX can call h.checkSum?
 	hash := fmt.Sprintf("%x", h.Sum(nil))
 
-	var mTime int
+	var mTime int64
 	fileInfo, err := file.Stat()
 	if err != nil {
-		fmt.Println("worker %d: error os.Stat(%s): %s\n", id, filename, err)
+		fmt.Printf("worker %d: error os.Stat(%s): %s\n", id, path, err)
 		mTime = 0
 	} else {
-		mTime = fileInfo.ModTime().Second()
+		mTime = fileInfo.ModTime().Unix()
 	}
-	return FileDesc{filename, hash, mTime}
+	return FileDesc{path, mTime, hash}, nil
 }
 
-func processFiles(id int, taskQueue <-chan string, doneQueue chan<- map[string][]string) {
+func processFiles(id int, taskQueue <-chan string, doneQueue chan<- map[string][]FileDesc) {
 	filesByHash := make(map[string][]FileDesc)
-	fmt.Println("worker %d: starting up!\n", id)
+	fmt.Printf("worker %d: starting up!\n", id)
 	for filename := range taskQueue {
-		filesByHash[h] = append(filesByHash[h], generateFileEntry(id, filename))
+		fileDesc, err := generateFileDesc(id, filename)
+		if err != nil {
+			fmt.Printf("worker %d: error generating entry for %s: %s\n", filename, err)
+			continue
+		}
+		filesByHash[fileDesc.hash] = append(filesByHash[fileDesc.hash], fileDesc)
 	}
+	fmt.Printf("worker %d: sending back %d entries\n", id, len(filesByHash))
+	doneQueue <- filesByHash
 }
 
-func findDupes(dirname string, numWorkers int) map[string][]string {
+func findDupes(dirname string, numWorkers int) map[string][]FileDesc {
 	taskQueue := make(chan string, 100)
 	doneQueue := make(chan map[string][]FileDesc)
 
@@ -72,33 +77,33 @@ func findDupes(dirname string, numWorkers int) map[string][]string {
 		go processFiles(i, taskQueue, doneQueue)
 	}
 
-	err := filepath.Walk(dirname, func(string fileOrDir) {
-		if _, ok := Excludes[fileOrDir]; ok {
-			continue
-		}
-		isDir, err := IsDirectory(fileOrDir)
+	//fmt.Printf("going to call filepath.Walk(%s)\n", dirname)
+	err := filepath.Walk(dirname, func(path string, info os.FileInfo, err error) error {
+		//fmt.Printf("examining path %s\n", path)
 		if err != nil {
-			fmt.Printf("Error accessing %s: %s\n", fileOrDir, err)
-			return
+			fmt.Printf("Error accessing %s: %s\n", path, err)
+			return nil
 		}
-		if !isDir {
-			taskQueue <- filepath.Join(root, f)
+		if _, ok := Excludes[info.Name()]; ok {
+			return nil
 		}
+		if !info.IsDir() {
+			//fmt.Printf("sending path %s to queue\n", path)
+			taskQueue <- path
+		}
+		return nil
 	})
 	if err != nil {
 		fmt.Printf("Error crawling directory tree: %s\n", err)
 	}
 	close(taskQueue)
+	//fmt.Printf("done calling filepath.Walk(%s)\n", dirname)
 
 	filesByHash := make(map[string][]FileDesc)
 	for i := 0; i < numWorkers; i++ {
 		workerFilesByHash := <-doneQueue
 		for k, v := range workerFilesByHash {
-			_, ok := filesByHash[k]
-			if !ok {
-				filesByHash[k] = make([]string, 5)
-			}
-			filesByHash[k] = append(filesByHash[k], v)
+			filesByHash[k] = append(filesByHash[k], v...)
 		}
 	}
 	return filesByHash
@@ -106,6 +111,22 @@ func findDupes(dirname string, numWorkers int) map[string][]string {
 
 func printDupes(dirname string, numWorkers int) {
 	filesByHash := findDupes(dirname, numWorkers)
+	if len(filesByHash) == 0 {
+		fmt.Printf("\nNo dupes found.\n")
+		return
+	}
+
+	fmt.Printf("\nDupes found:\n")
+	// XXX how to iterate in sorted order
+	for hash, fileDescs := range filesByHash {
+		if len(fileDescs) < 2 {
+			continue
+		}
+		fmt.Printf("\n%s\n", hash)
+		for i := range fileDescs {
+			fmt.Printf("\t%s %d\n", fileDescs[i].path, fileDescs[i].mtime)
+		}
+	}
 }
 
 // adapted from http://stackoverflow.com/a/25567952
@@ -131,13 +152,13 @@ func main() {
 
 	numWorkers := DefaultNumWorkers
 	if len(os.Args) > 2 {
-		numWorkers, err := strconv.Atoi(os.Args[2])
+		n, err := strconv.Atoi(os.Args[2])
 		if err != nil {
 			fmt.Printf("Error: %s\n", err)
 			os.Exit(1)
 		}
-		os.Exit(0)
+		numWorkers = n
 	}
 	fmt.Printf("Searching %s with %d workers\n", srcDir, numWorkers)
-
+	printDupes(srcDir, numWorkers)
 }
