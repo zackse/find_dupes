@@ -55,7 +55,7 @@ func generateFileDesc(id int, path string) (FileDesc, error) {
 	return FileDesc{path, mTime, hash}, nil
 }
 
-func processFiles(id int, taskQueue <-chan string, filesByHash map[string][]FileDesc, mutex *sync.Mutex) {
+func processFiles(id int, taskQueue <-chan string, doneChan chan<- bool, filesByHash map[string][]FileDesc, mutex *sync.Mutex) {
 	fmt.Printf("worker %d: starting up!\n", id)
 	for filename := range taskQueue {
 		fileDesc, err := generateFileDesc(id, filename)
@@ -67,15 +67,17 @@ func processFiles(id int, taskQueue <-chan string, filesByHash map[string][]File
 		filesByHash[fileDesc.hash] = append(filesByHash[fileDesc.hash], fileDesc)
 		mutex.Unlock()
 	}
+	doneChan <- true
 }
 
 func findDupes(dirname string, numWorkers int) map[string][]FileDesc {
 	taskQueue := make(chan string, 100)
+	doneChan := make(chan bool)
 	mutex := &sync.Mutex{}
 	filesByHash := make(map[string][]FileDesc)
 
 	for i := 0; i < numWorkers; i++ {
-		go processFiles(i, taskQueue, filesByHash, mutex)
+		go processFiles(i, taskQueue, doneChan, filesByHash, mutex)
 	}
 
 	//fmt.Printf("going to call filepath.Walk(%s)\n", dirname)
@@ -99,6 +101,9 @@ func findDupes(dirname string, numWorkers int) map[string][]FileDesc {
 	}
 	close(taskQueue)
 	//fmt.Printf("done calling filepath.Walk(%s)\n", dirname)
+	for i := 0; i < numWorkers; i++ {
+		<-doneChan
+	}
 
 	return filesByHash
 }
