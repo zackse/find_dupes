@@ -141,7 +141,7 @@ func IsDirectory(path string) (bool, error) {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Printf("Usage: find_dupes <PATH> [ <NUM_WORKERS> ]\n")
+		fmt.Printf("Usage: find_dupes_shared_map <PATH> [ <NUM_WORKERS> ]\n")
 		os.Exit(1)
 	}
 
