@@ -28,7 +28,9 @@ func generateFileDesc(id int, path string) (FileDesc, error) {
 	if err != nil {
 		return FileDesc{}, err
 	}
-	buf := make([]byte, 1048576)
+	defer file.Close()
+
+	buf := make([]byte, 4096)
 	for {
 		count, err := file.Read(buf)
 		if err != nil {
