@@ -112,7 +112,7 @@ func findDupes(dirname string, numWorkers int) map[string][]FileDesc {
 	// walk dupes, get md5s
 	mutex := sync.Mutex{}
 	filesByHash := make(map[string][]FileDesc)
-	c := make(chan int, 3)
+	c := make(chan bool)
 	for _, fileDescs := range filesBySize {
 		if len(fileDescs) < 2 {
 			continue
@@ -127,7 +127,7 @@ func findDupes(dirname string, numWorkers int) map[string][]FileDesc {
 					filesByHash[hash] = append(filesByHash[hash], f)
 					mutex.Unlock()
 				}
-				c <- 1
+				c <- true
 			}(file)
 		}
 		for range fileDescs {
