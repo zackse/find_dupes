@@ -30,7 +30,7 @@ func generateFileDesc(id int, path string) (FileDesc, error) {
 		return FileDesc{}, err
 	} else {
 		mTime = fileInfo.ModTime().Unix()
-		size  = fileInfo.Size()
+		size = fileInfo.Size()
 	}
 	return FileDesc{path, mTime, size}, nil
 }
