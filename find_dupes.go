@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 )
 
 var DefaultNumWorkers int = 2
@@ -70,7 +71,7 @@ func processFiles(id int, taskQueue <-chan string, doneQueue chan<- map[int64][]
 		}
 		filesBySize[fileDesc.size] = append(filesBySize[fileDesc.size], fileDesc)
 	}
-	fmt.Printf("worker %d: sending back %d entries\n", id, len(filesBySize))
+	fmt.Printf("worker %d: found sizes for %d files\n", id, len(filesBySize))
 	doneQueue <- filesBySize
 }
 
@@ -82,9 +83,7 @@ func findDupes(dirname string, numWorkers int) map[string][]FileDesc {
 		go processFiles(i, taskQueue, doneQueue)
 	}
 
-	//fmt.Printf("going to call filepath.Walk(%s)\n", dirname)
 	err := filepath.Walk(dirname, func(path string, info os.FileInfo, err error) error {
-		//fmt.Printf("examining path %s\n", path)
 		if err != nil {
 			fmt.Printf("Error accessing %s: %s\n", path, err)
 			return nil
@@ -93,7 +92,6 @@ func findDupes(dirname string, numWorkers int) map[string][]FileDesc {
 			return nil
 		}
 		if info.Mode().IsRegular() {
-			//fmt.Printf("sending path %s to queue\n", path)
 			taskQueue <- path
 		}
 		return nil
@@ -102,7 +100,6 @@ func findDupes(dirname string, numWorkers int) map[string][]FileDesc {
 		fmt.Printf("Error crawling directory tree: %s\n", err)
 	}
 	close(taskQueue)
-	//fmt.Printf("done calling filepath.Walk(%s)\n", dirname)
 
 	filesBySize := make(map[int64][]FileDesc)
 	for i := 0; i < numWorkers; i++ {
@@ -113,19 +110,28 @@ func findDupes(dirname string, numWorkers int) map[string][]FileDesc {
 	}
 
 	// walk dupes, get md5s
+	mutex := sync.Mutex{}
 	filesByHash := make(map[string][]FileDesc)
+	c := make(chan int, 3)
 	for _, fileDescs := range filesBySize {
 		if len(fileDescs) < 2 {
 			continue
 		}
-		for i := range fileDescs {
-			hash, err := getMD5(fileDescs[i].path)
-			if err != nil {
-				fmt.Printf("error getMD5(%s): %s\n", fileDescs[i].path, err)
-				continue
-			} else {
-				filesByHash[hash] = append(filesByHash[hash], fileDescs[i])
-			}
+		for _, file := range fileDescs {
+			go func(f FileDesc) {
+				hash, err := getMD5(f.path)
+				if err != nil {
+					fmt.Printf("error getMD5(%s): %s\n", f.path, err)
+				} else {
+					mutex.Lock()
+					filesByHash[hash] = append(filesByHash[hash], f)
+					mutex.Unlock()
+				}
+				c <- 1
+			}(file)
+		}
+		for range fileDescs {
+			<-c
 		}
 	}
 
@@ -140,14 +146,13 @@ func printDupes(dirname string, numWorkers int) {
 	}
 
 	fmt.Printf("\nDuplicates:\n")
-	// XXX how to iterate in sorted order
 	for hash, fileDescs := range filesByHash {
 		if len(fileDescs) < 2 {
 			continue
 		}
 		fmt.Printf("\n%s\n", hash)
-		for i := range fileDescs {
-			fmt.Printf("\t%s %d\n", fileDescs[i].path, fileDescs[i].mtime)
+		for _, file := range fileDescs {
+			fmt.Printf("\t%s %d\n", file.path, file.mtime)
 		}
 	}
 }
