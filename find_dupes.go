@@ -42,7 +42,9 @@ func getMD5(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	buf := make([]byte, 1048576)
+	defer file.Close()
+
+	buf := make([]byte, 4096)
 	for {
 		count, err := file.Read(buf)
 		if err != nil {
