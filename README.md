@@ -6,7 +6,7 @@ command-line utility to identify duplicate files in a directory tree
 installation
 ------------
 
-    go get github.com/zackse/find_dupes/find_dupes
+    go get github.com/zackse/find_dupes
 
 description
 -----------
