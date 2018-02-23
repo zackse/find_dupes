@@ -152,9 +152,9 @@ func printDupes(dirname string, numWorkers int) {
 		if len(fileDescs) < 2 {
 			continue
 		}
-		fmt.Printf("\n%s\n", hash)
+		fmt.Printf("\n%s (size %d)\n", hash, fileDescs[0].size)
 		for _, file := range fileDescs {
-			fmt.Printf("\t%s %d\n", file.path, file.mtime)
+			fmt.Printf("\t%s (mtime %d)\n", file.path, file.mtime)
 		}
 	}
 }
